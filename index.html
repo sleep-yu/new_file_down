@@ -283,7 +283,7 @@
         formData.append('file', selectedFile);
         console.log(formData)
 
-        const response = await fetch('http://localhost:3000/upload', {
+        const response = await fetch('http://localhost:3000/formData/upload', {
           method: 'POST',
           body: formData
         });
