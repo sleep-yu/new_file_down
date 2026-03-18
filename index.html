@@ -281,11 +281,11 @@
         // 创建 FormData 对象
         const formData = new FormData();
         formData.append('file', selectedFile);
+        console.log(formData)
 
         const response = await fetch('http://localhost:3000/upload', {
           method: 'POST',
           body: formData
-          // 不需要手动设置 Content-Type，浏览器会自动设置 multipart/form-data
         });
 
         const data = await response.json();
