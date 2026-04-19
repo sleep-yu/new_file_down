@@ -131,6 +131,8 @@ app.post('/merge-chunks', async (req, res) => {
 
     const fileBuffer = Buffer.concat(buffers);
     fs.writeFileSync(filePath, fileBuffer);
+    // 删除chunk  recursive: true-把目录里面内容一起删掉 force: true - 即使有些小问题也尽量删
+    fs.rmSync(chunkDir, { recursive: true, force: true })
 
     res.json({ message: '合并成功', fileName })
   } catch (error) {
