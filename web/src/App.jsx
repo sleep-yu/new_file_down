@@ -6,7 +6,8 @@ function App() {
   const [selectedFile, setSelectedFile] = useState(null)
   const [isUploading, setIsUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
-  const [result, setResult] = useState(null)
+  const [result, setResult] = useState(null);
+  const chunkSize = 5 * 1024 * 1024 // 5MB
 
   // 处理文件选择
   const handleFile = (file) => {
@@ -21,18 +22,19 @@ function App() {
     return new Promise((resolve, reject) => {
       const spark = new SparkMD5.ArrayBuffer()
       const fileReader = new FileReader()
-      const chunkSize = 5 * 1024 * 1024 // 5MB
       // 根据当前文件，每5M进行拆分，看分成多少个chunk
       const chunks = Math.ceil(file.size / chunkSize)
       let currentChunk = 0
 
+      // 这个函数会在 readAsArrayBuffer 时触发
       fileReader.onload = (e) => {
+        // 拿到这个区间的分片数据存储
         spark.append(e.target.result)
         currentChunk++
-        console.log(currentChunk, 'currentChunk')
         if (currentChunk < chunks) {
           loadNext()
         } else {
+          // 结束当前md5计算，并输出最终hash
           const hash = spark.end()
           resolve(hash)
         }
@@ -68,6 +70,23 @@ function App() {
     }
   }
 
+  const uploadChunks = async (fileHash) => {
+    const chunk = selectedFile.slice(0, chunkSize);
+    const formData = new FormData();
+    formData.append('chunk', chunk, selectedFile.name);
+    formData.append('fileHash', fileHash);
+    formData.append('chunkIndex', '0');
+    formData.append('totalChunks', String(Math.ceil(selectedFile.size / chunkSize)));
+    formData.append('fileName', selectedFile.name);
+    formData.append('fileSize', String(selectedFile.size));
+    const response = await fetch('http://localhost:3000/upload-chunk', {
+      method: 'POST',
+      body: formData
+    })
+    const data = await response.json();
+    console.log(data, 'data')
+  }
+
   // 开始上传
   const handleUpload = async () => {
     if (!selectedFile) return
@@ -85,7 +104,7 @@ function App() {
       const status = await getUploadStatus(hash)
 
       // TODO: 步骤3：上传分片
-      // await uploadChunks(hash)
+      await uploadChunks(hash)
 
       // TODO: 步骤4：合并分片
       // await mergeChunks(hash)

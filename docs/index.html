@@ -1,0 +1,603 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>大文件分片上传设计 - 单页版</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: #f5f7fa;
+    color: #1a1a2e;
+    line-height: 1.7;
+  }
+  .page {
+    max-width: 1120px;
+    margin: 0 auto;
+    padding: 40px 24px 80px;
+  }
+  h1 {
+    font-size: 2rem;
+    font-weight: 700;
+    color: #0f3460;
+    border-bottom: 3px solid #e94560;
+    padding-bottom: 12px;
+    margin-bottom: 8px;
+  }
+  .meta {
+    color: #666;
+    font-size: 0.9rem;
+    margin-bottom: 36px;
+  }
+  h2 {
+    font-size: 1.35rem;
+    font-weight: 700;
+    color: #0f3460;
+    margin: 48px 0 16px;
+    padding-left: 12px;
+    border-left: 4px solid #e94560;
+  }
+  h3 {
+    font-size: 1.05rem;
+    font-weight: 600;
+    color: #16213e;
+    margin: 24px 0 10px;
+  }
+  p { margin-bottom: 12px; color: #333; }
+  ul, ol { padding-left: 20px; }
+  li + li { margin-top: 8px; }
+  a { color: #0f5db8; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .card {
+    background: #fff;
+    border-radius: 10px;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.07);
+    padding: 28px 32px;
+    margin-bottom: 24px;
+  }
+  .diagram-wrap {
+    background: #fff;
+    border-radius: 10px;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.07);
+    padding: 32px;
+    margin-bottom: 24px;
+    overflow-x: auto;
+  }
+  .diagram-wrap .mermaid {
+    display: flex;
+    justify-content: center;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.92rem;
+    margin-top: 10px;
+  }
+  th {
+    background: #0f3460;
+    color: #fff;
+    padding: 10px 14px;
+    text-align: left;
+    vertical-align: top;
+  }
+  td {
+    padding: 9px 14px;
+    border-bottom: 1px solid #eee;
+    vertical-align: top;
+  }
+  tr:hover td { background: #f0f4ff; }
+  code {
+    background: #f0f4ff;
+    color: #c0392b;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.88em;
+    font-family: 'Fira Code', ui-monospace, monospace;
+  }
+  pre {
+    background: #1a1a2e;
+    color: #e0e0e0;
+    padding: 20px 24px;
+    border-radius: 8px;
+    overflow-x: auto;
+    font-size: 0.88rem;
+    line-height: 1.6;
+    margin: 12px 0;
+  }
+  pre code {
+    background: none;
+    color: inherit;
+    padding: 0;
+  }
+  .tag {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 12px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    margin-right: 6px;
+    margin-bottom: 8px;
+  }
+  .tag-blue { background: #cce5ff; color: #004085; }
+  .tag-green { background: #d4edda; color: #155724; }
+  .tag-yellow { background: #fff3cd; color: #856404; }
+  .tag-red { background: #f8d7da; color: #842029; }
+  .grid2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+  }
+  .grid3 {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 20px;
+  }
+  .highlight-box {
+    background: #fff8e1;
+    border-left: 4px solid #ffc107;
+    padding: 14px 18px;
+    border-radius: 0 8px 8px 0;
+    margin: 16px 0;
+    font-size: 0.93rem;
+    color: #5d4600;
+  }
+  .section-desc {
+    color: #555;
+    margin-bottom: 20px;
+    font-size: 0.95rem;
+  }
+  .jump-links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 18px;
+  }
+  .jump-links a {
+    display: inline-block;
+    background: #fff;
+    border: 1px solid #d9e4f2;
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-size: 0.9rem;
+    box-shadow: 0 1px 6px rgba(0,0,0,0.04);
+  }
+  .mini-card {
+    background: #fff;
+    border-radius: 10px;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.07);
+    padding: 22px 24px;
+  }
+  .mini-card h4 {
+    font-size: 1rem;
+    color: #16213e;
+    margin-bottom: 8px;
+  }
+  @media (max-width: 900px) {
+    .grid2, .grid3 { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <h1>大文件分片上传设计</h1>
+  <p class="meta">项目：new_file_down &nbsp;|&nbsp; 形态：单页版 DR + Diagrams &nbsp;|&nbsp; 日期：2026-04-19 &nbsp;|&nbsp; 版本：v1.0</p>
+
+  <div class="card">
+    <p>本文档将原本拆开的 3 份设计文档合并为一个单页 HTML，统一承载方案背景、接口协议、存储结构、前后端职责，以及对应的架构图和流程图。</p>
+    <p>图示改为 Mermaid 方案，风格与参考文档一致，避免继续使用手写 SVG 的方式维护图片。</p>
+    <div class="highlight-box">
+      目标：让这份文档同时满足“设计说明”和“评审图示”两个用途，后续前后端实现直接按本文落地。
+    </div>
+    <div class="jump-links">
+      <a href="#overview">背景与目标</a>
+      <a href="#architecture">整体架构图</a>
+      <a href="#main-flow">主上传流程</a>
+      <a href="#resume-flow">断点续传</a>
+      <a href="#retry-flow">失败重试</a>
+      <a href="#state-machine">状态机</a>
+      <a href="#api">接口协议</a>
+      <a href="#storage">存储设计</a>
+      <a href="#decisions">设计决策</a>
+      <a href="#verification">验收标准</a>
+    </div>
+  </div>
+
+  <h2 id="overview">一、背景与目标</h2>
+  <div class="card">
+    <p>大文件上传在弱网或长时上传场景下容易失败，整文件一次性重传成本高，且用户无法感知当前进度与恢复状态。为了解决这个问题，需要将上传流程拆分成多个可恢复、可补传、可重试的小单元。</p>
+    <div class="grid3">
+      <div class="mini-card">
+        <h4>目标能力</h4>
+        <p>支持大文件上传、断点续传、失败重试、上传进度展示、最终文件合并。</p>
+      </div>
+      <div class="mini-card">
+        <h4>运行边界</h4>
+        <p>浏览器上传客户端 + 单机 Upload API Server + 本地磁盘临时存储。</p>
+      </div>
+      <div class="mini-card">
+        <h4>交付结果</h4>
+        <p>冻结前后端协议、状态模型与目录结构，减少后续开发重复决策。</p>
+      </div>
+    </div>
+  </div>
+
+  <h2>二、设计原则</h2>
+  <div class="card">
+    <p>
+      <span class="tag tag-blue">流程闭环优先</span>
+      <span class="tag tag-green">接口幂等</span>
+      <span class="tag tag-yellow">状态可恢复</span>
+      <span class="tag tag-red">边界安全校验</span>
+    </p>
+    <ul>
+      <li>先保证主链路闭环：切片、查状态、补传缺片、合并完成。</li>
+      <li>分片上传必须具备幂等语义，重复提交不会污染状态。</li>
+      <li>上传状态必须落盘，页面刷新后仍可恢复。</li>
+      <li>前端负责切片、调度、重试与进度；后端负责落盘、状态记录与合并。</li>
+      <li>系统边界处执行必要校验：文件名、分片索引、文件大小、请求头、路径安全。</li>
+    </ul>
+  </div>
+
+  <h2 id="architecture">三、整体架构图</h2>
+  <p class="section-desc">上传链路以 <code>fileHash</code> 作为上传会话标识。客户端先计算文件 hash，再查询服务端已完成分片，最后仅补传缺失分片并触发合并。</p>
+  <div class="diagram-wrap">
+    <div class="mermaid">
+graph TB
+    subgraph Client["Browser Upload Client"]
+        C1["文件选择 / 分片切片"]
+        C2["计算 MD5(fileHash)"]
+        C3["状态查询 / 并发上传 / 进度聚合"]
+        C1 --> C2 --> C3
+    end
+
+    subgraph API["Upload API Server"]
+        A1["GET /upload-status"]
+        A2["POST /upload-chunk"]
+        A3["POST /merge-chunks"]
+    end
+
+    subgraph Storage["File Storage"]
+        S1["temp_chunks/{fileHash}/status.json"]
+        S2["temp_chunks/{fileHash}/chunks/*.part"]
+        S3["uploads/{merged-file}"]
+    end
+
+    C3 -->|HTTP| A1
+    C3 -->|HTTP| A2
+    C3 -->|HTTP| A3
+    A1 --> S1
+    A2 --> S1
+    A2 --> S2
+    A3 --> S2
+    A3 --> S3
+
+    classDef client fill:#e8f4fd,stroke:#0f3460,color:#16213e;
+    classDef api fill:#eafaf1,stroke:#0f766e,color:#14532d;
+    classDef storage fill:#fff4e6,stroke:#f39c12,color:#8a4b08;
+    class C1,C2,C3 client;
+    class A1,A2,A3 api;
+    class S1,S2,S3 storage;
+    </div>
+  </div>
+
+  <h2 id="main-flow">四、主上传流程</h2>
+  <p class="section-desc">主链路由“算 hash → 查状态 → 补传缺片 → 请求合并”组成，上传状态的唯一真相由服务端状态文件维护。</p>
+  <div class="diagram-wrap">
+    <div class="mermaid">
+sequenceDiagram
+    participant U as 用户
+    participant C as Upload Client
+    participant A as Upload API
+    participant S as temp_chunks/
+
+    U->>C: 选择文件
+    C->>C: 按 5MB 切片\n计算 MD5(fileHash)
+    C->>A: GET /upload-status?fileHash
+    A->>S: 读取 status.json
+    S-->>A: uploadedChunks / isComplete
+    A-->>C: 上传状态
+
+    alt 文件已经完成
+        C-->>U: 直接显示 success
+    else 存在缺失分片
+        loop 仅上传缺失分片
+            C->>A: POST /upload-chunk
+            A->>S: 写入 chunk + 更新 status.json
+            A-->>C: success
+        end
+        C->>A: POST /merge-chunks
+        A->>S: 按索引顺序合并分片
+        A-->>C: isComplete = true
+        C-->>U: 显示上传完成
+    end
+    </div>
+  </div>
+
+  <h2 id="resume-flow">五、断点续传流程</h2>
+  <p class="section-desc">续传依赖服务端状态文件，而不是浏览器本地缓存。用户重新选择同一文件后，客户端重新计算相同的 <code>fileHash</code> 即可恢复上传。</p>
+  <div class="diagram-wrap">
+    <div class="mermaid">
+sequenceDiagram
+    participant C as Upload Client
+    participant A as Upload API
+    participant S as temp_chunks/
+
+    Note over C: 网络中断 / 页面刷新 / 浏览器重开
+    C->>C: 重新选择同一文件\n重新计算 fileHash
+    C->>A: GET /upload-status?fileHash
+    A->>S: 读取 uploadedChunks
+    S-->>A: 当前上传状态
+    A-->>C: uploadedChunks
+    C->>C: diff 缺失分片
+
+    loop 仅补传缺失分片
+        C->>A: POST /upload-chunk
+        A-->>C: success
+    end
+
+    C->>A: POST /merge-chunks
+    A-->>C: merged success
+    </div>
+  </div>
+
+  <h2 id="retry-flow">六、失败重试与恢复流程</h2>
+  <p class="section-desc">首版只对单片上传做有限次自动重试；超过上限则进入错误态，等待用户再次触发上传，并重新查询服务端状态后继续补传。</p>
+  <div class="diagram-wrap">
+    <div class="mermaid">
+flowchart TD
+    A[上传某个分片] --> B{是否成功?}
+    B -- 是 --> C[记录 uploadedChunks]
+    C --> D{全部缺失分片完成?}
+    D -- 否 --> A
+    D -- 是 --> E[请求 merge-chunks]
+
+    B -- 否 --> F[retryCount + 1]
+    F --> G{超过 3 次?}
+    G -- 否 --> H[等待退避 500 / 1000 / 2000ms]
+    H --> A
+    G -- 是 --> I[进入 error 状态]
+    I --> J[用户再次触发上传]
+    J --> K[重新查询 upload-status]
+    K --> L[仅补传缺失分片]
+
+    classDef ok fill:#d4edda,stroke:#198754,color:#155724;
+    classDef warn fill:#fff3cd,stroke:#f39c12,color:#856404;
+    classDef err fill:#f8d7da,stroke:#dc3545,color:#842029;
+    class C,E,L ok;
+    class F,G,H warn;
+    class I err;
+    </div>
+  </div>
+
+  <h2 id="state-machine">七、前端状态机图</h2>
+  <p class="section-desc">前端只维护调度状态，不保存服务端权威状态副本；所有恢复都通过重新查询上传状态完成。</p>
+  <div class="diagram-wrap">
+    <div class="mermaid">
+stateDiagram-v2
+    [*] --> idle
+    idle --> hashing: start upload
+    hashing --> checking_status: hash ready
+    hashing --> error: hash failed
+    checking_status --> uploading: missing chunks > 0
+    checking_status --> merging: missing chunks = 0
+    checking_status --> error: status failed
+    uploading --> merging: all missing chunks done
+    uploading --> error: chunk failed after retries
+    merging --> success: merge success
+    merging --> error: merge failed
+    error --> hashing: retry
+    success --> idle: choose new file
+    </div>
+  </div>
+
+  <h2 id="api">八、接口协议</h2>
+  <div class="card">
+    <p>首版协议固定为 3 个接口：查询状态、上传分片、触发合并。所有接口返回 JSON，错误统一使用结构化响应。</p>
+
+    <h3>8.1 接口总览</h3>
+    <table>
+      <tr><th>接口</th><th>方法</th><th>用途</th><th>关键幂等语义</th></tr>
+      <tr><td><code>/upload-status</code></td><td>GET</td><td>查询已上传分片与完成状态</td><td>同一 fileHash 多次查询返回同一状态快照</td></tr>
+      <tr><td><code>/upload-chunk</code></td><td>POST</td><td>上传单个分片</td><td>重复上传同一分片直接返回成功</td></tr>
+      <tr><td><code>/merge-chunks</code></td><td>POST</td><td>按顺序合并所有分片</td><td>重复合并返回已完成结果</td></tr>
+    </table>
+
+    <h3>8.2 错误响应结构</h3>
+    <pre><code>{
+  "error": {
+    "code": "INVALID_REQUEST",
+    "message": "human readable message"
+  }
+}</code></pre>
+
+    <h3>8.3 GET /upload-status</h3>
+    <table>
+      <tr><th>用途</th><td>查询 fileHash 对应的已上传分片列表，用于断点续传。</td></tr>
+      <tr><th>Query</th><td><code>fileHash</code> 必填。</td></tr>
+      <tr><th>状态码</th><td><code>200</code> 成功；<code>400</code> 缺少 fileHash。</td></tr>
+    </table>
+    <pre><code>{
+  "fileHash": "f5d1278e8109edd94e1e4197e04873b9",
+  "fileName": "video.mp4",
+  "fileSize": 734003200,
+  "chunkSize": 5242880,
+  "totalChunks": 140,
+  "uploadedChunks": [0, 1, 2, 3],
+  "isComplete": false,
+  "mergedFileName": null,
+  "updatedAt": "2026-04-19T12:00:00.000Z"
+}</code></pre>
+
+    <h3>8.4 POST /upload-chunk</h3>
+    <table>
+      <tr><th>Headers</th><td><code>X-File-Hash</code>、<code>X-File-Name</code>、<code>X-Chunk-Index</code>、<code>X-Total-Chunks</code>、<code>X-File-Size</code>、<code>X-Chunk-Size</code>、<code>Content-Type: application/octet-stream</code></td></tr>
+      <tr><th>Body</th><td>当前分片原始二进制内容。</td></tr>
+      <tr><th>状态码</th><td><code>200</code> 成功或幂等命中；<code>400</code> 参数错误；<code>409</code> 元数据冲突；<code>500</code> 写盘失败。</td></tr>
+    </table>
+    <pre><code>{
+  "fileHash": "f5d1278e8109edd94e1e4197e04873b9",
+  "chunkIndex": 18,
+  "stored": true,
+  "alreadyExists": false,
+  "uploadedChunksCount": 19,
+  "totalChunks": 140,
+  "isComplete": false
+}</code></pre>
+
+    <h3>8.5 POST /merge-chunks</h3>
+    <table>
+      <tr><th>Body</th><td><code>fileHash</code>、<code>fileName</code>、<code>fileSize</code>、<code>chunkSize</code>、<code>totalChunks</code></td></tr>
+      <tr><th>状态码</th><td><code>200</code> 合并成功；<code>400</code> 请求错误；<code>409</code> 分片未齐或元数据冲突；<code>500</code> 合并失败。</td></tr>
+    </table>
+    <pre><code>{
+  "fileHash": "f5d1278e8109edd94e1e4197e04873b9",
+  "isComplete": true,
+  "mergedFileName": "video__f5d1278e.mp4",
+  "uploadedChunksCount": 140,
+  "totalChunks": 140
+}</code></pre>
+
+    <h3>8.6 CORS 允许头</h3>
+    <pre><code>Content-Type
+X-File-Hash
+X-File-Name
+X-Chunk-Index
+X-Total-Chunks
+X-File-Size
+X-Chunk-Size</code></pre>
+  </div>
+
+  <h2 id="storage">九、存储设计</h2>
+  <p class="section-desc">服务端以 <code>fileHash</code> 作为工作目录键，状态文件与分片文件聚合在同一目录；最终合并文件写入 <code>uploads/</code>。</p>
+  <div class="diagram-wrap">
+    <div class="mermaid">
+flowchart LR
+    subgraph W["temp_chunks/{fileHash}/"]
+        Status["status.json"]
+        Lock["merge.lock"]
+        subgraph ChunkDir["chunks/"]
+            P0["0.part"]
+            P1["1.part"]
+            PN["N.part"]
+        end
+    end
+    W --> Final["uploads/{cleanedName__hash8.ext}"]
+
+    classDef temp fill:#fff4e6,stroke:#f39c12,color:#8a4b08;
+    classDef final fill:#ede9fe,stroke:#7c3aed,color:#5b21b6;
+    class Status,Lock,ChunkDir,P0,P1,PN temp;
+    class Final final;
+    </div>
+  </div>
+  <div class="card">
+    <h3>9.1 目录结构</h3>
+    <pre><code>temp_chunks/
+  &lt;fileHash&gt;/
+    status.json
+    merge.lock
+    chunks/
+      0.part
+      1.part
+      2.part
+uploads/
+  video__f5d1278e.mp4</code></pre>
+
+    <h3>9.2 status.json 结构</h3>
+    <pre><code>{
+  "version": 1,
+  "fileHash": "f5d1278e8109edd94e1e4197e04873b9",
+  "fileName": "video.mp4",
+  "fileSize": 734003200,
+  "chunkSize": 5242880,
+  "totalChunks": 140,
+  "uploadedChunks": [0, 1, 2, 3],
+  "isComplete": false,
+  "mergedFileName": null,
+  "createdAt": "2026-04-19T12:00:00.000Z",
+  "updatedAt": "2026-04-19T12:04:25.000Z"
+}</code></pre>
+
+    <h3>9.3 存储规则</h3>
+    <ul>
+      <li>分片文件名固定为 <code>&lt;chunkIndex&gt;.part</code>。</li>
+      <li>首次接收某个 fileHash 时创建工作目录与初始 <code>status.json</code>。</li>
+      <li>每次写入新分片后，更新 <code>uploadedChunks</code> 与 <code>updatedAt</code>。</li>
+      <li>合并时按索引升序流式读取分片，写入临时合并文件，再原子改名到 <code>uploads/</code>。</li>
+      <li>合并成功后删除 <code>chunks/</code>，保留 <code>status.json</code> 以供短期查询。</li>
+    </ul>
+  </div>
+
+  <h2>十、前后端职责拆分</h2>
+  <div class="grid2">
+    <div class="card">
+      <h3>前端职责</h3>
+      <ul>
+        <li>按固定 chunk size 切片。</li>
+        <li>计算 MD5，得到 fileHash。</li>
+        <li>调用状态接口，拿到 uploadedChunks。</li>
+        <li>构造 missingChunks 并执行并发上传。</li>
+        <li>聚合上传进度，并处理失败重试。</li>
+        <li>缺片全部上传后触发 merge-chunks。</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>后端职责</h3>
+      <ul>
+        <li>校验请求头、文件名、索引范围和文件元信息。</li>
+        <li>按 fileHash / chunkIndex 落盘分片。</li>
+        <li>维护 status.json 与 uploadedChunks。</li>
+        <li>处理幂等上传与元数据冲突。</li>
+        <li>按顺序合并最终文件并返回完成状态。</li>
+        <li>清理临时分片目录与合并锁文件。</li>
+      </ul>
+    </div>
+  </div>
+
+  <h2 id="decisions">十一、关键设计决策</h2>
+  <div class="card">
+    <table>
+      <tr><th>问题</th><th>决策</th><th>原因</th></tr>
+      <tr><td>文件唯一标识</td><td>使用文件内容 MD5 作为 <code>fileHash</code></td><td>同一文件可稳定恢复到同一上传会话</td></tr>
+      <tr><td>切片大小</td><td>初版固定为 <code>5MB</code></td><td>实现简单，兼顾请求数与恢复粒度</td></tr>
+      <tr><td>分片索引</td><td>统一使用 <code>0-based</code></td><td>前后端实现一致，数组映射自然</td></tr>
+      <tr><td>上传协议</td><td><code>POST /upload-chunk</code> 走原始二进制 body</td><td>避免 multipart 包裹，服务端直接按文件写盘</td></tr>
+      <tr><td>并发数</td><td>前端固定 4 路并发</td><td>吞吐与服务端压力之间平衡，适合首版验证</td></tr>
+      <tr><td>重试策略</td><td>每片最多重试 3 次，退避 500/1000/2000ms</td><td>控制失败重试成本，避免无穷重试</td></tr>
+      <tr><td>合并触发</td><td>分片全部上传完后显式调用 <code>POST /merge-chunks</code></td><td>让合并成为明确步骤，便于恢复与追踪</td></tr>
+      <tr><td>临时目录</td><td>统一使用 <code>temp_chunks/</code></td><td>与最终文件目录职责分离，便于清理</td></tr>
+      <tr><td>重复上传分片</td><td>返回成功，不重复记账</td><td>保证网络抖动场景的幂等语义</td></tr>
+    </table>
+  </div>
+
+  <h2>十二、非目标</h2>
+  <div class="card">
+    <ul>
+      <li>不覆盖鉴权、权限隔离、多租户权限控制。</li>
+      <li>不覆盖对象存储、CDN、多节点共享磁盘或分布式协调。</li>
+      <li>不引入数据库保存上传状态。</li>
+      <li>不设计暂停/继续、多文件批量上传、秒传判重等扩展能力。</li>
+    </ul>
+  </div>
+
+  <h2 id="verification">十三、验收标准</h2>
+  <div class="card">
+    <ul>
+      <li>文档为单页 HTML，可直接浏览和评审。</li>
+      <li>文档同时包含设计说明与图示，不再依赖多个拆分文件。</li>
+      <li>接口、状态结构、目录结构、幂等语义、恢复策略都已固定。</li>
+      <li>前端工程师仅根据本文即可实现切片调度与状态机。</li>
+      <li>后端工程师仅根据本文即可实现分片落盘、状态维护、合并和清理。</li>
+    </ul>
+    <div class="highlight-box">下一步：直接按本文实现前后端代码，并以文中定义的接口和目录约定完成联调。</div>
+  </div>
+
+</div>
+
+<script>
+  mermaid.initialize({ startOnLoad: true, theme: 'default', securityLevel: 'loose', flowchart: { curve: 'basis' } });
+</script>
+</body>
+</html>

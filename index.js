@@ -16,6 +16,8 @@ const storage = multer.diskStorage({
 })
 
 const upload = multer({ storage });
+// 拿到分片的buffer,memoryStorage会把分片放到req.file.buffer
+const chunkUpload = multer({ storage: multer.memoryStorage() });
 
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
@@ -65,7 +67,7 @@ app.get('/upload-status', async (req, res) => {
   console.log(`查询文件状态：${fileHash}`)
 
   // 读取状态文件 - 修改路径
-  const statusFilePath = path.join(__dirname, 'temp_chunks', fileHash, 'status.json');
+  const statusFilePath = path.join(__dirname, 'chunks', fileHash, 'status.json');
   console.log(statusFilePath, 'statusFilePath')
   if (!fs.existsSync(statusFilePath)) {
     // 文件是否存在
@@ -81,15 +83,29 @@ app.get('/upload-status', async (req, res) => {
   res.json(status);
 })
 
-// 上传分片接口
-app.get('/uplpad-chunk', async (req, res) => {
+// 上传分片接口，single这里的chunk需要跟前端对其
+app.post('/upload-chunk', chunkUpload.single('chunk'), async (req, res) => {
   try {
-    // 1.从请求头获取分片信息
-    const fileHash = req.headers['x-file-hash'];
-    const chunkIndex = parseInt(req.headers['x-chunk-index']);
-    const totalChunks = parseInt(req.headers['x-total-chunks']);
-    const fileName = decodeURIComponent(req.headers['x-file-name']);
-    const fileSize = parseInt(req.headers['x-file-size']);
+    const { fileHash, chunkIndex } = req.body;
+    const chunkDir = path.join(__dirname, 'chunks', fileHash);
+    fs.mkdirSync(chunkDir, { recursive: true });
+    const chunkPath = path.join(chunkDir, String(chunkIndex));
+    fs.writeFileSync(chunkPath, req.file.buffer);
+    const uploadedChunks = fs.readdirSync(chunkDir)
+      .filter(name => name !== 'status.json')
+      .map(name => Number(name))
+      .sort((a, b) => a - b);
+    const status = {
+      fileHash,
+      uploadedChunks,
+      totalChunks: Number(req.body.totalChunks),
+      isComplete: uploadedChunks.length === Number(req.body.totalChunks)
+    }
+    fs.writeFileSync(
+      path.join(chunkDir, 'status.json'),
+      JSON.stringify(status, null, 2)
+    )
+    res.json({ message: '收到分片了', chunkIndex })
   } catch (error) {
 
   }
