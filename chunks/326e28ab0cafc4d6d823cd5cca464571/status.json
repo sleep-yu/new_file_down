@@ -1,8 +1,16 @@
 {
   "fileHash": "326e28ab0cafc4d6d823cd5cca464571",
   "uploadedChunks": [
-    0
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8
   ],
   "totalChunks": 9,
-  "isComplete": false
+  "isComplete": true
 }

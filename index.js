@@ -107,7 +107,34 @@ app.post('/upload-chunk', chunkUpload.single('chunk'), async (req, res) => {
     )
     res.json({ message: '收到分片了', chunkIndex })
   } catch (error) {
+    console.error('上传分片失败：', error)
+  }
+})
 
+// 合并分片
+app.post('/merge-chunks', async (req, res) => {
+  try {
+    const { fileHash, fileName } = req.body;
+
+    const chunkDir = path.join(__dirname, 'chunks', fileHash);
+    const chunkFiles = fs.readdirSync(chunkDir)
+      .filter(name => name !== 'status.json')
+      .sort((a, b) => Number(a) - Number(b))
+
+    const uploadDir = path.join(__dirname, 'uploads');
+    fs.mkdirSync(uploadDir, { recursive: true });
+    const filePath = path.join(uploadDir, fileName);
+    const buffers = chunkFiles.map(chunkFile => {
+      const chunkPath = path.join(chunkDir, chunkFile);
+      return fs.readFileSync(chunkPath)
+    })
+
+    const fileBuffer = Buffer.concat(buffers);
+    fs.writeFileSync(filePath, fileBuffer);
+
+    res.json({ message: '合并成功', fileName })
+  } catch (error) {
+    console.error('合并分片失败：', error);
   }
 })
 
