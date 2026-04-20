@@ -73,6 +73,8 @@ function App() {
   const uploadChunks = async (fileHash, status) => {
     const totalChunks = Math.ceil(selectedFile.size / chunkSize);
     const uploadedChunks = status.uploadedChunks || [];
+    let uploadedCount = uploadedChunks.length; // 计数器
+    setUploadProgress(Math.round((uploadedCount / totalChunks) * 100));
     for (let i = 0; i < totalChunks; i++) {
       if (uploadedChunks.includes(i)) continue;
       const start = i * chunkSize;
@@ -82,7 +84,7 @@ function App() {
       formData.append('chunk', chunk, selectedFile.name);
       formData.append('fileHash', fileHash);
       formData.append('chunkIndex', String(i));
-      formData.append('totalChunks', String(Math.ceil(selectedFile.size / chunkSize)));
+      formData.append('totalChunks', String(totalChunks));
       formData.append('fileName', selectedFile.name);
       formData.append('fileSize', String(selectedFile.size));
       const response = await fetch('http://localhost:3000/upload-chunk', {
@@ -90,6 +92,8 @@ function App() {
         body: formData
       })
       const data = await response.json();
+      uploadedCount++;
+      setUploadProgress(Math.round((uploadedCount / totalChunks) * 100));
       console.log(data, 'data')
     }
   }
@@ -132,7 +136,7 @@ function App() {
       await mergeChunks(hash)
 
       // 暂时模拟完成
-      setResult({ type: 'success', message: '上传功能待实现...' })
+      setResult({ type: 'success', message: '上传成功' })
 
     } catch (error) {
       setResult({ type: 'error', message: error.message })

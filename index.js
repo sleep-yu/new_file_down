@@ -19,6 +19,25 @@ const upload = multer({ storage });
 // 拿到分片的buffer,memoryStorage会把分片放到req.file.buffer
 const chunkUpload = multer({ storage: multer.memoryStorage() });
 
+const CHUNK_DIR = path.join(__dirname, 'chunks');
+const CHUNK_EXPIRE_TIME = 24 * 60 * 60 * 1000;
+
+const cleanupExpiredChunks = () => {
+  if (!fs.existsSync(CHUNK_DIR)) return;
+  const chunkFolders = fs.readdirSync(CHUNK_DIR);
+  for (const item of chunkFolders) {
+    const chunkPath = path.join(CHUNK_DIR, item);
+    if (!fs.statSync(chunkPath).isDirectory()) continue;
+    const statusFilePath = path.join(chunkPath, 'status.json');
+    if (!fs.existsSync(statusFilePath)) continue;
+    const status = JSON.parse(fs.readFileSync(statusFilePath, 'utf-8'));
+    const isExpired = Date.now() - status.updatedAt > CHUNK_EXPIRE_TIME;
+    if (isExpired) {
+      fs.rmSync(chunkPath, { recursive: true, force: true });
+    }
+  }
+}
+
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Headers', 'Content-Type, X-File-Name, X-Chunk-Index, X-Total-Chunks, X-File-Size');
@@ -55,7 +74,7 @@ app.post('/upload', async (req, res) => {
 
   const filePath = path.join(uploadDir, fileName);
   fs.writeFileSync(filePath, buffer);
-  res.json({ message: '上传成功', size: buffer.length })
+  res.json({ message: '上传成功', size: buffer.length });
 })
 
 // 查询文件分片上传状态
@@ -64,6 +83,7 @@ app.get('/upload-status', async (req, res) => {
   if (!fileHash) {
     return res.status(400).json({ error: '缺少 fileHash 参数' })
   }
+  cleanupExpiredChunks();
   console.log(`查询文件状态：${fileHash}`)
 
   // 读取状态文件 - 修改路径
@@ -86,6 +106,7 @@ app.get('/upload-status', async (req, res) => {
 // 上传分片接口，single这里的chunk需要跟前端对其
 app.post('/upload-chunk', chunkUpload.single('chunk'), async (req, res) => {
   try {
+    cleanupExpiredChunks();
     const { fileHash, chunkIndex } = req.body;
     const chunkDir = path.join(__dirname, 'chunks', fileHash);
     fs.mkdirSync(chunkDir, { recursive: true });
@@ -99,7 +120,8 @@ app.post('/upload-chunk', chunkUpload.single('chunk'), async (req, res) => {
       fileHash,
       uploadedChunks,
       totalChunks: Number(req.body.totalChunks),
-      isComplete: uploadedChunks.length === Number(req.body.totalChunks)
+      isComplete: uploadedChunks.length === Number(req.body.totalChunks),
+      updatedAt: Date.now()
     }
     fs.writeFileSync(
       path.join(chunkDir, 'status.json'),
@@ -114,6 +136,7 @@ app.post('/upload-chunk', chunkUpload.single('chunk'), async (req, res) => {
 // 合并分片
 app.post('/merge-chunks', async (req, res) => {
   try {
+    cleanupExpiredChunks();
     const { fileHash, fileName } = req.body;
 
     const chunkDir = path.join(__dirname, 'chunks', fileHash);
