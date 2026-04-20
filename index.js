@@ -79,11 +79,11 @@ app.post('/upload', async (req, res) => {
 
 // 查询文件分片上传状态
 app.get('/upload-status', async (req, res) => {
+  cleanupExpiredChunks();
   const fileHash = req.query.fileHash;
   if (!fileHash) {
     return res.status(400).json({ error: '缺少 fileHash 参数' })
   }
-  cleanupExpiredChunks();
   console.log(`查询文件状态：${fileHash}`)
 
   // 读取状态文件 - 修改路径
@@ -140,6 +140,7 @@ app.post('/merge-chunks', async (req, res) => {
     const { fileHash, fileName } = req.body;
 
     const chunkDir = path.join(__dirname, 'chunks', fileHash);
+    // 读取所有的chunk文件
     const chunkFiles = fs.readdirSync(chunkDir)
       .filter(name => name !== 'status.json')
       .sort((a, b) => Number(a) - Number(b))
@@ -151,7 +152,6 @@ app.post('/merge-chunks', async (req, res) => {
       const chunkPath = path.join(chunkDir, chunkFile);
       return fs.readFileSync(chunkPath)
     })
-
     const fileBuffer = Buffer.concat(buffers);
     fs.writeFileSync(filePath, fileBuffer);
     // 删除chunk  recursive: true-把目录里面内容一起删掉 force: true - 即使有些小问题也尽量删

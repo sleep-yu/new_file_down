@@ -70,33 +70,72 @@ function App() {
     }
   }
 
-  const uploadChunks = async (fileHash, status) => {
-    const totalChunks = Math.ceil(selectedFile.size / chunkSize);
-    const uploadedChunks = status.uploadedChunks || [];
-    let uploadedCount = uploadedChunks.length; // 计数器
-    setUploadProgress(Math.round((uploadedCount / totalChunks) * 100));
-    for (let i = 0; i < totalChunks; i++) {
-      if (uploadedChunks.includes(i)) continue;
-      const start = i * chunkSize;
-      const end = Math.min(start + chunkSize, selectedFile.size);
-      const chunk = selectedFile.slice(start, end);
-      const formData = new FormData();
-      formData.append('chunk', chunk, selectedFile.name);
-      formData.append('fileHash', fileHash);
-      formData.append('chunkIndex', String(i));
-      formData.append('totalChunks', String(totalChunks));
-      formData.append('fileName', selectedFile.name);
-      formData.append('fileSize', String(selectedFile.size));
-      const response = await fetch('http://localhost:3000/upload-chunk', {
-        method: 'POST',
-        body: formData
-      })
-      const data = await response.json();
-      uploadedCount++;
-      setUploadProgress(Math.round((uploadedCount / totalChunks) * 100));
-      console.log(data, 'data')
+  // 设置并发池
+  const runPool = async (tasks, limit = 4) => {
+    let index = 0;
+
+    const runOneWorker = async () => {
+      while (index < tasks.length) {
+        const currentTask = tasks[index];
+        index++;
+        await currentTask()
+      }
+    }
+
+    const workers = []
+    for (let i = 0; i < limit; i++) {
+      workers.push(runOneWorker());
+    }
+    await Promise.all(workers);
+  }
+
+  // 失败自动重试
+  const retryFetch = async (formData, times = 3) => {
+    for (let i = 0; i < times; i++) {
+      try {
+        const res = await fetch("http://localhost:3000/upload-chunk", {
+          method: "POST",
+          body: formData
+        });
+        if (!res.ok) throw new Error("upload fail");
+        return await res.json();
+      } catch (error) {
+        // 已经失败三次
+        if (i === times - 1) throw error;
+      }
     }
   }
+
+  const uploadChunks = async (fileHash, status) => {
+    const totalChunks = Math.ceil(selectedFile.size / chunkSize);
+    const uploadedChunks = new Set(status.uploadedChunks || []);
+    let uploadedCount = uploadedChunks.size; // 计数器
+    setUploadProgress(Math.round((uploadedCount / totalChunks) * 100));
+
+    const tasks = [];
+
+    for (let i = 0; i < totalChunks; i++) {
+      if (uploadedChunks.has(i)) continue;
+      tasks.push(async () => {
+        const start = i * chunkSize;
+        const end = Math.min(start + chunkSize, selectedFile.size);
+        const chunk = selectedFile.slice(start, end);
+        const formData = new FormData();
+        formData.append('chunk', chunk, selectedFile.name);
+        formData.append('fileHash', fileHash);
+        formData.append('chunkIndex', String(i));
+        formData.append('totalChunks', String(totalChunks));
+        formData.append('fileName', selectedFile.name);
+        formData.append('fileSize', String(selectedFile.size));
+        await retryFetch(formData)
+        uploadedCount++;
+        setUploadProgress(Math.round((uploadedCount / totalChunks) * 100));
+      })
+    }
+    // 设置最大并发4
+    await runPool(tasks, 4)
+  }
+
 
   const mergeChunks = async (fileHash) => {
     const response = await fetch('http://localhost:3000/merge-chunks', {
