@@ -1,8 +1,37 @@
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
+const http = require('http');
+const https = require('https');
+const { pipeline } = require('stream/promises');
 const app = express();
 const multer = require('multer');
+const FileDownloader = require('./FileDownloader')
+
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, X-File-Name, X-Chunk-Index, X-Total-Chunks, X-File-Size');
+  res.header('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+  next();
+});
+app.use(express.json());
+
+app.post('/postRecord', async function (req, res) {
+  try {
+    const record = req.body;
+    // 下载文件
+    const downloader = new FileDownloader();
+    const { apkPath } = await downloader.downloadFile(record);
+    if (fs.existsSync(apkPath)) {
+      fs.unlinkSync(apkPath);
+    }
+  } catch (error) {
+    console.log(error)
+  }
+})
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
@@ -38,16 +67,22 @@ const cleanupExpiredChunks = () => {
   }
 }
 
-app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, X-File-Name, X-Chunk-Index, X-Total-Chunks, X-File-Size');
-  res.header('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  if (req.method === 'OPTIONS') {
-    return res.sendStatus(200);
-  }
-  next();
-});
-app.use(express.json());
+const isPrivateHostname = (hostname) => {
+  const lowerHostname = hostname.toLowerCase();
+  if (lowerHostname === 'localhost' || lowerHostname === '::1') return true;
+
+  const ipv4Match = lowerHostname.match(/^(\d{1,3}\.){3}\d{1,3}$/);
+  if (!ipv4Match) return false;
+
+  const parts = lowerHostname.split('.').map(Number);
+  if (parts.some(part => Number.isNaN(part) || part < 0 || part > 255)) return true;
+
+  return parts[0] === 10
+    || parts[0] === 127
+    || (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31)
+    || (parts[0] === 192 && parts[1] === 168)
+    || (parts[0] === 169 && parts[1] === 254);
+}
 
 // formData方式上传文件
 app.post('/formData/upload', upload.single('file'), (req, res) => {
@@ -162,6 +197,63 @@ app.post('/merge-chunks', async (req, res) => {
     console.error('合并分片失败：', error);
   }
 })
+
+app.post('/download', async (req, res) => {
+  try {
+    const { url } = req.body;
+    if (!url) {
+      return res.status(400).json({ error: '缺少 url 参数' });
+    }
+
+    const parsedUrl = new URL(url);
+    if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
+      return res.status(400).json({ error: '只支持 http 或 https 链接' });
+    }
+
+    if (isPrivateHostname(parsedUrl.hostname)) {
+      return res.status(400).json({ error: '不允许下载内网地址' });
+    }
+
+    const fileName = path.basename(decodeURIComponent(parsedUrl.pathname)) || `download_${Date.now()}`;
+    const downloadDir = path.join(__dirname, 'downloads');
+    if (!fs.existsSync(downloadDir)) fs.mkdirSync(downloadDir);
+
+    const filePath = path.join(downloadDir, fileName);
+    await downloadFile(url, filePath);
+
+    res.json({
+      message: '下载成功',
+      fileName,
+      filePath
+    });
+  } catch (error) {
+    console.error('下载文件失败:', error);
+    res.status(500).json({ error: error.message || '下载失败' });
+  }
+});
+
+const downloadFile = (url, filePath) => {
+  return new Promise((resolve, reject) => {
+    const fileWriteStream = fs.createWriteStream(filePath);
+    https.get(url, (response) => {
+      response.pipe(fileWriteStream);
+
+      fileWriteStream.on('finish', () => {
+        fileWriteStream.close();
+        resolve();
+      });
+
+      response.on('error', (error) => {
+        fs.unlink(filePath, (err) => {
+          if (err) {
+            this.logger.error(`Error deleting file: ${err.message}`);
+          }
+        });
+        reject(`Error downloading resource: ${error.message}`);
+      });
+    });
+  })
+}
 
 const PORT = 3000;
 app.listen(PORT, () => console.log(`服务器运行在 http://localhost:${PORT}`))
